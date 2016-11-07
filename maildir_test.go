@@ -1,14 +1,16 @@
 package maildir
 
 import (
-	"io/ioutil"
 	"os"
-	"path/filepath"
 	"testing"
+
+	"io/ioutil"
+	"path/filepath"
 )
 
 // cleanup removes a Dir's directory structure
 func cleanup(t *testing.T, d Dir) {
+
 	err := os.RemoveAll(string(d))
 	if err != nil {
 		t.Error(err)
@@ -17,40 +19,49 @@ func cleanup(t *testing.T, d Dir) {
 
 // exists checks if the given path exists
 func exists(path string) bool {
+
 	_, err := os.Stat(path)
 	if err == nil {
 		return true
 	}
+
 	if os.IsNotExist(err) {
 		return false
 	}
+
 	panic(err)
 }
 
 // cat returns the content of a file as a string
 func cat(t *testing.T, path string) string {
+
 	f, err := os.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
+
 	c, err := ioutil.ReadAll(f)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	return string(c)
 }
 
 // makeDelivery creates a new message
 func makeDelivery(t *testing.T, d Dir, msg string) {
+
 	del, err := d.NewDelivery()
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	_, err = del.Write([]byte(msg))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	err = del.Close()
 	if err != nil {
 		t.Fatal(err)
@@ -58,7 +69,6 @@ func makeDelivery(t *testing.T, d Dir, msg string) {
 }
 
 func TestCreate(t *testing.T) {
-	t.Parallel()
 
 	var d Dir = "test_create"
 	err := d.Create()
@@ -69,9 +79,9 @@ func TestCreate(t *testing.T) {
 }
 
 func TestDelivery(t *testing.T) {
-	t.Parallel()
 
 	var d Dir = "test_delivery"
+
 	err := d.Create()
 	if err != nil {
 		t.Fatal(err)
@@ -85,10 +95,12 @@ func TestDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	path, err := d.Filename(keys[0])
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !exists(path) {
 		t.Fatal("File doesn't exist")
 	}
@@ -99,9 +111,9 @@ func TestDelivery(t *testing.T) {
 }
 
 func TestFilename(t *testing.T) {
-	t.Parallel()
 
-	var d Dir = "test_delivery"
+	var d Dir = "test_filename"
+
 	err := d.Create()
 	if err != nil {
 		t.Fatal(err)
@@ -120,6 +132,7 @@ func TestFilename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !exists(path) {
 		t.Fatal("File doesn't exist")
 	}
@@ -130,9 +143,9 @@ func TestFilename(t *testing.T) {
 }
 
 func TestPurge(t *testing.T) {
-	t.Parallel()
 
 	var d Dir = "test_purge"
+
 	err := d.Create()
 	if err != nil {
 		t.Fatal(err)
@@ -145,10 +158,12 @@ func TestPurge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	path, err := d.Filename(keys[0])
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	err = d.Purge(keys[0])
 	if err != nil {
 		t.Fatal(err)
@@ -160,15 +175,16 @@ func TestPurge(t *testing.T) {
 }
 
 func TestMove(t *testing.T) {
-	t.Parallel()
 
 	var d1 Dir = "test_move1"
+	var d2 Dir = "test_move2"
+
 	err := d1.Create()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer cleanup(t, d1)
-	var d2 Dir = "test_move2"
+
 	err = d2.Create()
 	if err != nil {
 		t.Fatal(err)
@@ -177,10 +193,12 @@ func TestMove(t *testing.T) {
 
 	const msg = "a moving message"
 	makeDelivery(t, d1, msg)
+
 	keys, err := d1.Unseen()
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	err = d1.Move(d2, keys[0])
 	if err != nil {
 		t.Fatal(err)
@@ -190,10 +208,12 @@ func TestMove(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	path, err := d2.Filename(keys[0])
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if cat(t, path) != msg {
 		t.Fatal("Content doesn't match")
 	}
@@ -201,7 +221,9 @@ func TestMove(t *testing.T) {
 }
 
 func TestKeys(t *testing.T) {
+
 	var d Dir = "test_keys"
+
 	err := d.Create()
 	if err != nil {
 		t.Fatal(err)
@@ -212,6 +234,7 @@ func TestKeys(t *testing.T) {
 	for i := 0; i < want; i++ {
 		makeDelivery(t, d, "msg")
 	}
+
 	keys, err := d.Keys()
 	if err != nil {
 		t.Fatal(err)
