@@ -5,7 +5,6 @@ import (
 	"bufio"
 	"bytes"
 	"io"
-	"log"
 	"os"
 	"sort"
 	"strconv"
@@ -20,15 +19,26 @@ import (
 	"sync/atomic"
 )
 
-// The Separator separates a messages unique key from its flags in the filename.
-// This should only be changed on operating systems where the colon isn't
-// allowed in filenames.
-var Separator rune = ':'
-
-var id int64 = 10000
+// Constants
 
 // CreateMode holds the permissions used when creating a directory.
 const CreateMode = 0700
+
+// Variables
+
+// The separator separates a message's unique key from its flags in the filename.
+// This should only be changed on operating systems where the colon isn't
+// allowed in filenames.
+var separator rune = ':'
+
+var id int64 = 10000
+
+// Structs and Types
+
+// A Dir represents a single directory in a Maildir mailbox.
+type Dir string
+
+type runeSlice []rune
 
 // A KeyError occurs when a key matches more or less than one message.
 type KeyError struct {
@@ -36,14 +46,16 @@ type KeyError struct {
 	N   int    // number of matches (!= 1)
 }
 
-func (e *KeyError) Error() string {
-	return "maildir: key " + e.Key + " matches " + strconv.Itoa(e.N) + " files."
-}
-
 // A FlagError occurs when a non-standard info section is encountered.
 type FlagError struct {
 	Info         string // the encountered info section
 	Experimental bool   // info section starts with 1
+}
+
+// Functions
+
+func (e *KeyError) Error() string {
+	return "maildir: key " + e.Key + " matches " + strconv.Itoa(e.N) + " files."
 }
 
 func (e *FlagError) Error() string {
@@ -55,12 +67,13 @@ func (e *FlagError) Error() string {
 	return "maildir: bad info section encountered: " + e.Info
 }
 
-// A Dir represents a single directory in a Maildir mailbox.
-type Dir string
+func (s runeSlice) Len() int           { return len(s) }
+func (s runeSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
+func (s runeSlice) Less(i, j int) bool { return s[i] < s[j] }
 
 // Unseen moves messages from new to cur and returns their keys.
-// This means the messages are now known to the application. To find out whether
-// a user has seen a message, use Flags().
+// This means the messages are now known to the application.
+// To find out whether a user has seen a message, use Flags().
 func (d Dir) Unseen() ([]string, error) {
 
 	f, err := os.Open(filepath.Join(string(d), "new"))
@@ -81,7 +94,7 @@ func (d Dir) Unseen() ([]string, error) {
 		if n[0] != '.' {
 
 			split := strings.FieldsFunc(n, func(r rune) bool {
-				return r == Separator
+				return r == separator
 			})
 
 			key := split[0]
@@ -94,38 +107,34 @@ func (d Dir) Unseen() ([]string, error) {
 				info = split[1]
 			}
 
+			// Save key for later return.
 			keys = append(keys, key)
 
-			err = os.Rename(filepath.Join(string(d), "new", n), filepath.Join(string(d), "cur", (key+string(Separator)+info)))
+			// Build up new file name for mail in cur directory.
+			curFileName := (key + string(separator) + info)
+
+			// Rename file from old name in new directory to
+			// curFileName in new directory.
+			err = os.Rename(filepath.Join(string(d), "new", n), filepath.Join(string(d), "cur", curFileName))
 		}
 	}
+
 	return keys, err
 }
 
-func readDirNames(d string) ([]string, error) {
+// Keys returns a list of file names to use as keys in order
+// to access mails in the cur directory of a Maildir.
+func (d Dir) Keys() ([]string, error) {
 
-	f, err := os.Open(d)
+	f, err := os.Open(filepath.Join(string(d), "cur"))
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 
-	return f.Readdirnames(0)
-}
-
-// Keys returns a slice of valid keys to access messages by.
-func (d Dir) Keys() ([]string, error) {
-
-	names := []string{}
-
-	for _, dir := range []string{"cur", "new"} {
-
-		files, err := readDirNames(filepath.Join(string(d), dir))
-		if err != nil {
-			return nil, err
-		}
-
-		names = append(names, files...)
+	names, err := f.Readdirnames(0)
+	if err != nil {
+		return nil, err
 	}
 
 	var keys []string
@@ -135,7 +144,7 @@ func (d Dir) Keys() ([]string, error) {
 		if n[0] != '.' {
 
 			split := strings.FieldsFunc(n, func(r rune) bool {
-				return r == Separator
+				return r == separator
 			})
 
 			keys = append(keys, split[0])
@@ -148,55 +157,67 @@ func (d Dir) Keys() ([]string, error) {
 // Filename returns the path to the file corresponding to the key.
 func (d Dir) Filename(key string) (string, error) {
 
-	matches, err := filepath.Glob(filepath.Join(string(d), "/*/", (key + "*")))
+	// Find matching files in cur directory that begin with key.
+	matches, err := filepath.Glob(filepath.Join(string(d), "cur", (key + "*")))
 	if err != nil {
 		return "", err
 	}
 
 	if n := len(matches); n != 1 {
-		return "", &KeyError{key, n}
+
+		// If there was more than one match, return an error.
+		return "", &KeyError{
+			Key: key,
+			N:   n,
+		}
 	}
 
+	// Otherwise, return the match.
 	return matches[0], nil
 }
 
 // Header returns the corresponding mail header to a key.
-func (d Dir) Header(key string) (header mail.Header, err error) {
+func (d Dir) Header(key string) (*mail.Header, error) {
 
+	// Check if there exists only one file matching the key.
 	filename, err := d.Filename(key)
 	if err != nil {
-		return
+		return nil, err
 	}
 
 	file, err := os.Open(filename)
 	if err != nil {
-		return
+		return nil, err
 	}
 	defer file.Close()
 
+	// In order to parse out the leading MIME header of
+	// a mail file, create a new textproto convenience reader.
 	tp := textproto.NewReader(bufio.NewReader(file))
 
+	// Extract the MIME header.
 	hdr, err := tp.ReadMIMEHeader()
 	if err != nil {
-		return
+		return nil, err
 	}
 
-	header = mail.Header(hdr)
+	// Cast MIME header to net/mail's header type.
+	header := mail.Header(hdr)
 
-	return
+	return &header, nil
 }
 
-// Message returns a Message by key.
+// Message returns a message by key.
 func (d Dir) Message(key string) (*mail.Message, error) {
 
 	filename, err := d.Filename(key)
 	if err != nil {
-		return &mail.Message{}, err
+		return nil, err
 	}
 
 	r, err := os.Open(filename)
 	if err != nil {
-		return &mail.Message{}, err
+		return nil, err
 	}
 	defer r.Close()
 
@@ -204,22 +225,17 @@ func (d Dir) Message(key string) (*mail.Message, error) {
 
 	_, err = io.Copy(buf, r)
 	if err != nil {
-		return &mail.Message{}, err
+		return nil, err
 	}
 
+	// Parse headers and make available the mail body.
 	msg, err := mail.ReadMessage(buf)
 	if err != nil {
-		return msg, err
+		return nil, err
 	}
 
 	return msg, nil
 }
-
-type runeSlice []rune
-
-func (s runeSlice) Len() int           { return len(s) }
-func (s runeSlice) Swap(i, j int)      { s[i], s[j] = s[j], s[i] }
-func (s runeSlice) Less(i, j int) bool { return s[i] < s[j] }
 
 // Flags returns the flags for a message sorted in ascending order.
 // See the documentation of SetFlags for details.
@@ -231,20 +247,31 @@ func (d Dir) Flags(key string) (string, error) {
 	}
 
 	split := strings.FieldsFunc(filename, func(r rune) bool {
-		return r == Separator
+		return r == separator
 	})
 
 	switch {
 
-	case len(split[1]) < 2,
-		split[1][1] != ',':
-		return "", &FlagError{split[1], false}
+	case len(split[1]) < 2, split[1][1] != ',':
+
+		return "", &FlagError{
+			Info:         split[1],
+			Experimental: false,
+		}
 
 	case split[1][0] == '1':
-		return "", &FlagError{split[1], true}
+
+		return "", &FlagError{
+			Info:         split[1],
+			Experimental: true,
+		}
 
 	case split[1][0] != '2':
-		return "", &FlagError{split[1], false}
+
+		return "", &FlagError{
+			Info:         split[1],
+			Experimental: false,
+		}
 	}
 
 	rs := runeSlice(split[1][2:])
@@ -292,7 +319,9 @@ func (d Dir) SetInfo(key, info string) error {
 		return err
 	}
 
-	err = os.Rename(filename, filepath.Join(string(d), "cur", (key+string(Separator)+info)))
+	newFileName := key + string(separator) + info
+
+	err = os.Rename(filename, filepath.Join(string(d), "cur", newFileName))
 
 	return err
 }
@@ -314,7 +343,7 @@ func Key() (string, error) {
 	}
 
 	host = strings.Replace(host, "/", "\057", -1)
-	host = strings.Replace(host, string(Separator), "\072", -1)
+	host = strings.Replace(host, string(separator), "\072", -1)
 	key += host
 	key += "."
 
@@ -362,6 +391,8 @@ func (d Dir) Create() error {
 		return err
 	}
 
+	// TODO: Create maildirfolder file?
+
 	return nil
 }
 
@@ -406,28 +437,20 @@ func (d *Delivery) Write(p []byte) (int, error) {
 // Close closes the underlying file and moves it to new.
 func (d *Delivery) Close() error {
 
-	log.Println("a")
-
 	err := d.file.Close()
 	if err != nil {
 		return err
 	}
-
-	log.Println("b")
 
 	err = os.Link(filepath.Join(string(d.d), "tmp", d.key), filepath.Join(string(d.d), "new", d.key))
 	if err != nil {
 		return err
 	}
 
-	log.Println("c")
-
 	err = os.Remove(filepath.Join(string(d.d), "tmp", d.key))
 	if err != nil {
 		return err
 	}
-
-	log.Println("d")
 
 	return nil
 }

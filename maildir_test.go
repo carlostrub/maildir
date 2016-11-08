@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"io/ioutil"
-	"path/filepath"
 )
 
 // cleanup removes a Dir's directory structure
@@ -70,6 +69,8 @@ func makeDelivery(t *testing.T, d Dir, msg string) {
 
 func TestCreate(t *testing.T) {
 
+	t.Parallel()
+
 	var d Dir = "test_create"
 	err := d.Create()
 	if err != nil {
@@ -80,7 +81,14 @@ func TestCreate(t *testing.T) {
 
 func TestDelivery(t *testing.T) {
 
+	t.Parallel()
+
 	var d Dir = "test_delivery"
+	msgs := []string{
+		"this is the first message",
+		"a second message follows",
+		"why not have three messages?",
+	}
 
 	err := d.Create()
 	if err != nil {
@@ -88,61 +96,42 @@ func TestDelivery(t *testing.T) {
 	}
 	defer cleanup(t, d)
 
-	var msg = "this is a message"
-	makeDelivery(t, d, msg)
+	// Deliver all prepared messages.
+	for _, msg := range msgs {
+		makeDelivery(t, d, msg)
+	}
 
 	keys, err := d.Unseen()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	path, err := d.Filename(keys[0])
-	if err != nil {
-		t.Fatal(err)
+	// Check if we see all delivered messages in
+	// cur directory after calling d.Unseen().
+	if len(keys) != len(msgs) {
+		t.Fatal("Amount of unseen messages does not concur with delivered messages")
 	}
 
-	if !exists(path) {
-		t.Fatal("File doesn't exist")
-	}
+	for i, msg := range msgs {
 
-	if cat(t, path) != msg {
-		t.Fatal("Content doesn't match")
-	}
-}
+		path, err := d.Filename(keys[i])
+		if err != nil {
+			t.Fatal(err)
+		}
 
-func TestFilename(t *testing.T) {
+		if !exists(path) {
+			t.Fatal("File doesn't exist")
+		}
 
-	var d Dir = "test_filename"
-
-	err := d.Create()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cleanup(t, d)
-
-	var msg = "this is a message"
-	makeDelivery(t, d, msg)
-
-	keys, err := readDirNames(filepath.Join(string(d), "new"))
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	path, err := d.Filename(keys[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !exists(path) {
-		t.Fatal("File doesn't exist")
-	}
-
-	if cat(t, path) != msg {
-		t.Fatal("Content doesn't match")
+		if cat(t, path) != msg {
+			t.Fatal("Content doesn't match")
+		}
 	}
 }
 
 func TestPurge(t *testing.T) {
+
+	t.Parallel()
 
 	var d Dir = "test_purge"
 
@@ -176,8 +165,11 @@ func TestPurge(t *testing.T) {
 
 func TestMove(t *testing.T) {
 
+	t.Parallel()
+
 	var d1 Dir = "test_move1"
 	var d2 Dir = "test_move2"
+	const msg = "a moving message"
 
 	err := d1.Create()
 	if err != nil {
@@ -191,7 +183,6 @@ func TestMove(t *testing.T) {
 	}
 	defer cleanup(t, d2)
 
-	const msg = "a moving message"
 	makeDelivery(t, d1, msg)
 
 	keys, err := d1.Unseen()
@@ -218,30 +209,4 @@ func TestMove(t *testing.T) {
 		t.Fatal("Content doesn't match")
 	}
 
-}
-
-func TestKeys(t *testing.T) {
-
-	var d Dir = "test_keys"
-
-	err := d.Create()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer cleanup(t, d)
-
-	want := 3
-	for i := 0; i < want; i++ {
-		makeDelivery(t, d, "msg")
-	}
-
-	keys, err := d.Keys()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got := len(keys)
-	if got != want {
-		t.Errorf("d.Keys()\nwant: %d\n got: %d", want, got)
-	}
 }
