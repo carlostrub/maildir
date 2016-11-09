@@ -31,6 +31,7 @@ const CreateMode = 0700
 // allowed in filenames.
 var separator rune = ':'
 
+// id will be used to created a unique new mail file name (key).
 var id int64 = 10000
 
 // Structs and Types
@@ -50,6 +51,15 @@ type KeyError struct {
 type FlagError struct {
 	Info         string // the encountered info section
 	Experimental bool   // info section starts with 1
+}
+
+// Delivery represents an ongoing message delivery to the mailbox.
+// It implements the WriteCloser interface. On closing the underlying file is
+// moved/relinked to new.
+type Delivery struct {
+	file *os.File
+	d    Dir
+	key  string
 }
 
 // Functions
@@ -116,10 +126,13 @@ func (d Dir) Unseen() ([]string, error) {
 			// Rename file from old name in new directory to
 			// curFileName in new directory.
 			err = os.Rename(filepath.Join(string(d), "new", n), filepath.Join(string(d), "cur", curFileName))
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
-	return keys, err
+	return keys, nil
 }
 
 // Keys returns a list of file names to use as keys in order
@@ -215,15 +228,15 @@ func (d Dir) Message(key string) (*mail.Message, error) {
 		return nil, err
 	}
 
-	r, err := os.Open(filename)
+	file, err := os.Open(filename)
 	if err != nil {
 		return nil, err
 	}
-	defer r.Close()
+	defer file.Close()
 
 	buf := new(bytes.Buffer)
 
-	_, err = io.Copy(buf, r)
+	_, err = io.Copy(buf, file)
 	if err != nil {
 		return nil, err
 	}
@@ -254,6 +267,8 @@ func (d Dir) Flags(key string) (string, error) {
 
 	case len(split[1]) < 2, split[1][1] != ',':
 
+		// Info section of mail file name did not
+		// start with a version identifier.
 		return "", &FlagError{
 			Info:         split[1],
 			Experimental: false,
@@ -261,6 +276,8 @@ func (d Dir) Flags(key string) (string, error) {
 
 	case split[1][0] == '1':
 
+		// Experimental version of Maildir specified
+		// which we will not process.
 		return "", &FlagError{
 			Info:         split[1],
 			Experimental: true,
@@ -268,6 +285,8 @@ func (d Dir) Flags(key string) (string, error) {
 
 	case split[1][0] != '2':
 
+		// Any other Maildir version specified which
+		// is not 2. Will not process.
 		return "", &FlagError{
 			Info:         split[1],
 			Experimental: false,
@@ -295,6 +314,7 @@ func (d Dir) Flags(key string) (string, error) {
 //	Flag "F" (flagged): user-defined flag; toggled at user discretion.
 func (d Dir) SetFlags(key string, flags string) error {
 
+	// Maildir version number 2.
 	info := "2,"
 
 	rs := runeSlice(flags)
@@ -307,11 +327,17 @@ func (d Dir) SetFlags(key string, flags string) error {
 		}
 	}
 
-	return d.SetInfo(key, info)
+	// Write info to mail file name.
+	err := d.SetInfo(key, info)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
-// Set the info part of the filename.
-// Only use this if you plan on using a non-standard info part.
+// Set info part of file name. Only use this if
+// you plan on using a non-standard info part.
 func (d Dir) SetInfo(key, info string) error {
 
 	filename, err := d.Filename(key)
@@ -319,11 +345,16 @@ func (d Dir) SetInfo(key, info string) error {
 		return err
 	}
 
+	// Build up new name of mail file.
 	newFileName := key + string(separator) + info
 
+	// Rename mail to new name.
 	err = os.Rename(filename, filepath.Join(string(d), "cur", newFileName))
+	if err != nil {
+		return err
+	}
 
-	return err
+	return nil
 }
 
 // Key generates a new unique key as described in the Maildir specification.
@@ -332,8 +363,11 @@ func (d Dir) SetInfo(key, info string) error {
 // uniqueness among messages delivered in the same second.
 func Key() (string, error) {
 
-	var key string
+	// Start with empty string.
+	key := ""
 
+	// First part of key is current time in seconds
+	// since 1970 (UNIX timestamp).
 	key += strconv.FormatInt(time.Now().Unix(), 10)
 	key += "."
 
@@ -342,22 +376,28 @@ func Key() (string, error) {
 		return "", err
 	}
 
+	// Second part is the host name with some
+	// escaped characters.
 	host = strings.Replace(host, "/", "\057", -1)
 	host = strings.Replace(host, string(separator), "\072", -1)
 	key += host
 	key += "."
 
+	// Third part is made up of three elements:
+	// * first, the process ID
 	key += strconv.FormatInt(int64(os.Getpid()), 10)
+
+	// * second, an atomically incremented counter value.
 	key += strconv.FormatInt(id, 10)
-
 	atomic.AddInt64(&id, 1)
-	bs := make([]byte, 10)
 
+	// * third, 10 bytes of random characters from a
+	//   cryptographically secure pseudo-random number generator.
+	bs := make([]byte, 10)
 	_, err = io.ReadFull(rand.Reader, bs)
 	if err != nil {
 		return "", err
 	}
-
 	key += hex.EncodeToString(bs)
 
 	return key, nil
@@ -391,33 +431,27 @@ func (d Dir) Create() error {
 		return err
 	}
 
-	// TODO: Create maildirfolder file?
-
 	return nil
-}
-
-// Delivery represents an ongoing message delivery to the mailbox.
-// It implements the WriteCloser interface. On closing the underlying file is
-// moved/relinked to new.
-type Delivery struct {
-	file *os.File
-	d    Dir
-	key  string
 }
 
 // NewDelivery creates a new Delivery.
 func (d Dir) NewDelivery() (*Delivery, error) {
 
+	// Generate a new mail file key.
 	key, err := Key()
 	if err != nil {
 		return nil, err
 	}
 
-	del := &Delivery{}
+	// Set a timed function for new delivery that
+	// aborts the delivery attempt after 24 hours.
+	del := new(Delivery)
 	time.AfterFunc((24 * time.Hour), func() {
 		del.Abort()
 	})
 
+	// Create the new mail file under built key
+	// in tmp directory of Maildir.
 	file, err := os.Create(filepath.Join(string(d), "tmp", key))
 	if err != nil {
 		return nil, err
@@ -427,11 +461,34 @@ func (d Dir) NewDelivery() (*Delivery, error) {
 	del.d = d
 	del.key = key
 
+	// Sync file creation to disk before continuing.
+	err = del.file.Sync()
+	if err != nil {
+		return nil, err
+	}
+
 	return del, nil
 }
 
-func (d *Delivery) Write(p []byte) (int, error) {
-	return d.file.Write(p)
+// Write takes in supplied slice of bytes representing
+// the actual mail contents to be written into mail
+// file in the delivery process.
+func (d *Delivery) Write(p []byte) error {
+
+	// Write bytes to file.
+	_, err := d.file.Write(p)
+	if err != nil {
+		return err
+	}
+
+	// Sync changes to stable storage
+	// (flush to hard disk).
+	err = d.file.Sync()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Close closes the underlying file and moves it to new.
@@ -442,11 +499,13 @@ func (d *Delivery) Close() error {
 		return err
 	}
 
+	// Hard-link delivered message from tmp to new directory.
 	err = os.Link(filepath.Join(string(d.d), "tmp", d.key), filepath.Join(string(d.d), "new", d.key))
 	if err != nil {
 		return err
 	}
 
+	// Remove the old reference in tmp folder.
 	err = os.Remove(filepath.Join(string(d.d), "tmp", d.key))
 	if err != nil {
 		return err
@@ -463,6 +522,7 @@ func (d *Delivery) Abort() error {
 		return err
 	}
 
+	// If timeout expired, remove file in tmp folder.
 	err = os.Remove(filepath.Join(string(d.d), "tmp", d.key))
 	if err != nil {
 		return err
@@ -479,7 +539,14 @@ func (d Dir) Move(target Dir, key string) error {
 		return err
 	}
 
-	return os.Rename(path, filepath.Join(string(target), "cur", filepath.Base(path)))
+	// Rename link to file from source directory
+	// to cur folder at target directory.
+	err = os.Rename(path, filepath.Join(string(target), "cur", filepath.Base(path)))
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Purge removes the actual file behind this message.
@@ -490,7 +557,13 @@ func (d Dir) Purge(key string) error {
 		return err
 	}
 
-	return os.Remove(f)
+	// Unlink file and thereby delete it.
+	err = os.Remove(f)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // Clean removes old files from tmp and should be run periodically.
@@ -508,18 +581,24 @@ func (d Dir) Clean() error {
 		return err
 	}
 
+	// Save current time for comparison later on.
 	now := time.Now()
 
-	for _, n := range names {
+	for _, name := range names {
 
-		fi, err := os.Stat(filepath.Join(string(d), "tmp", n))
+		// Gather information on file by stat'ing it.
+		file, err := os.Stat(filepath.Join(string(d), "tmp", name))
 		if err != nil {
+			// Go back to for loop beginning in case of an error.
 			continue
 		}
 
-		if now.Sub(fi.ModTime()).Hours() > 36 {
+		// Calculate if last modification time of file in
+		// tmp directory is more than 36 hours ago.
+		if now.Sub(file.ModTime()).Hours() > 36 {
 
-			err = os.Remove(filepath.Join(string(d), "tmp", n))
+			// If this is the case, we can safely remove it.
+			err = os.Remove(filepath.Join(string(d), "tmp", name))
 			if err != nil {
 				return err
 			}
