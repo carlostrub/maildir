@@ -56,7 +56,7 @@ func makeDelivery(t *testing.T, d Dir, msg string) {
 		t.Fatal(err)
 	}
 
-	_, err = del.Write([]byte(msg))
+	err = del.Write([]byte(msg))
 	if err != nil {
 		t.Fatal(err)
 	}
