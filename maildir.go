@@ -4,6 +4,7 @@ package maildir
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -401,6 +402,53 @@ func Key() (string, error) {
 	key += hex.EncodeToString(bs)
 
 	return key, nil
+}
+
+// Check takes in supplied directory and performs
+// compliance checks to Maildir folder layout.
+// It does not change anything in file system in
+// case it encounters an error.
+func (d Dir) Check() error {
+
+	correctPerm := fmt.Sprintf("%v", (os.ModeDir | CreateMode))
+
+	dir, err := os.Stat(string(d))
+	if err != nil {
+		return err
+	}
+
+	if dir.Mode().String() != correctPerm {
+		return fmt.Errorf("selected folder is not a directory or has wrong permissions")
+	}
+
+	tmpDir, err := os.Stat(filepath.Join(string(d), "tmp"))
+	if err != nil {
+		return err
+	}
+
+	if tmpDir.Mode().String() != correctPerm {
+		return fmt.Errorf("tmp directory in selected folder is not a directory or has wrong permissions")
+	}
+
+	newDir, err := os.Stat(filepath.Join(string(d), "new"))
+	if err != nil {
+		return err
+	}
+
+	if newDir.Mode().String() != correctPerm {
+		return fmt.Errorf("new directory in selected folder is not a directory or has wrong permissions")
+	}
+
+	curDir, err := os.Stat(filepath.Join(string(d), "cur"))
+	if err != nil {
+		return err
+	}
+
+	if curDir.Mode().String() != correctPerm {
+		return fmt.Errorf("cur directory in selected folder is not a directory or has wrong permissions")
+	}
+
+	return nil
 }
 
 // Create creates the directory structure for a Maildir.
