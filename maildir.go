@@ -482,6 +482,18 @@ func (d Dir) Create() error {
 	return nil
 }
 
+// Remove deletes an entire Maildir from stable storage.
+func (d Dir) Remove() error {
+
+	// Attempt to remove Maildir with all children.
+	err := os.RemoveAll(string(d))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 // NewDelivery creates a new Delivery.
 func (d Dir) NewDelivery() (*Delivery, error) {
 
