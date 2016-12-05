@@ -54,9 +54,9 @@ type FlagError struct {
 	Experimental bool   // info section starts with 1
 }
 
-// Delivery represents an ongoing message delivery to the mailbox.
-// It implements the WriteCloser interface. On closing the underlying file is
-// moved/relinked to new.
+// Delivery represents an ongoing message delivery to the mailbox. It
+// implements the WriteCloser interface. When associated Close function
+// is called, the underlying file is moved from tmp to new directory.
 type Delivery struct {
 	file *os.File
 	d    Dir
