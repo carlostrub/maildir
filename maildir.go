@@ -105,7 +105,7 @@ func (d Dir) Unseen() ([]string, error) {
 		if n[0] != '.' {
 
 			split := strings.FieldsFunc(n, func(r rune) bool {
-				return r == separator
+				return (r == separator)
 			})
 
 			key := split[0]
@@ -552,26 +552,26 @@ func (d *Delivery) Write(p []byte) error {
 }
 
 // Close closes the underlying file and moves it to new.
-func (d *Delivery) Close() error {
+func (d *Delivery) Close() (string, error) {
 
 	err := d.file.Close()
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Hard-link delivered message from tmp to new directory.
 	err = os.Link(filepath.Join(string(d.d), "tmp", d.key), filepath.Join(string(d.d), "new", d.key))
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	// Remove the old reference in tmp folder.
 	err = os.Remove(filepath.Join(string(d.d), "tmp", d.key))
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	return d.key, nil
 }
 
 // Abort closes the underlying file and removes it completely.
