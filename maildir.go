@@ -158,7 +158,7 @@ func (d Dir) Keys() ([]string, error) {
 		if n[0] != '.' {
 
 			split := strings.FieldsFunc(n, func(r rune) bool {
-				return r == separator
+				return (r == separator)
 			})
 
 			keys = append(keys, split[0])
@@ -253,15 +253,23 @@ func (d Dir) Message(key string) (*mail.Message, error) {
 
 // Flags returns the flags for a message sorted in ascending order.
 // See the documentation of SetFlags for details.
-func (d Dir) Flags(key string) (string, error) {
+func (d Dir) Flags(key string, isKey bool) (string, error) {
 
-	filename, err := d.Filename(key)
-	if err != nil {
-		return "", err
+	var err error
+	var filename string
+
+	if isKey {
+
+		filename, err = d.Filename(key)
+		if err != nil {
+			return "", err
+		}
+	} else {
+		filename = key
 	}
 
 	split := strings.FieldsFunc(filename, func(r rune) bool {
-		return r == separator
+		return (r == separator)
 	})
 
 	switch {
