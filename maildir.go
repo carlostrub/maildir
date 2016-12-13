@@ -315,13 +315,13 @@ func (d Dir) Flags(key string, isKey bool) (string, error) {
 // The following flags are listed in the specification
 // (http://cr.yp.to/proto/maildir.html):
 //
+//	Flag "D" (draft): the user considers this message a draft; toggled at user discretion.
+//	Flag "F" (flagged): user-defined flag; toggled at user discretion.
 //	Flag "P" (passed): the user has resent/forwarded/bounced this message to someone else.
 //	Flag "R" (replied): the user has replied to this message.
 //	Flag "S" (seen): the user has viewed this message, though perhaps he didn't read all the way through it.
 //	Flag "T" (trashed): the user has moved this message to the trash; the trash will be emptied by a later user action.
-//	Flag "D" (draft): the user considers this message a draft; toggled at user discretion.
-//	Flag "F" (flagged): user-defined flag; toggled at user discretion.
-func (d Dir) SetFlags(key string, flags string) error {
+func (d Dir) SetFlags(key string, flags string, isKey bool) (string, error) {
 
 	// Maildir version number 2.
 	info := "2,"
@@ -337,33 +337,54 @@ func (d Dir) SetFlags(key string, flags string) error {
 	}
 
 	// Write info to mail file name.
-	err := d.SetInfo(key, info)
+	newFileName, err := d.SetInfo(key, info, isKey)
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	return newFileName, nil
 }
 
 // Set info part of file name. Only use this if
 // you plan on using a non-standard info part.
-func (d Dir) SetInfo(key, info string) error {
+func (d Dir) SetInfo(key, info string, isKey bool) (string, error) {
 
-	filename, err := d.Filename(key)
-	if err != nil {
-		return err
+	var err error
+	var filename string
+
+	if isKey {
+
+		// If key was supplied, find corresponding
+		// file name for key.
+		filename, err = d.Filename(key)
+		if err != nil {
+			return "", err
+		}
+	} else {
+
+		// If filename was supplied, split filename
+		// at separator symbol.
+		split := strings.FieldsFunc(key, func(r rune) bool {
+			return (r == separator)
+		})
+
+		// Set filename to key and set correct key.
+		filename = filepath.Join(string(d), "cur", key)
+		key = split[0]
 	}
 
 	// Build up new name of mail file.
 	newFileName := key + string(separator) + info
 
+	fmt.Printf("old name: %s, new name: %s\n", filename, newFileName)
+
 	// Rename mail to new name.
 	err = os.Rename(filename, filepath.Join(string(d), "cur", newFileName))
 	if err != nil {
-		return err
+		return "", err
 	}
 
-	return nil
+	return newFileName, nil
 }
 
 // Key generates a new unique key as described in the Maildir specification.
