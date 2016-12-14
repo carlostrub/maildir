@@ -376,8 +376,6 @@ func (d Dir) SetInfo(key, info string, isKey bool) (string, error) {
 	// Build up new name of mail file.
 	newFileName := key + string(separator) + info
 
-	fmt.Printf("old name: %s, new name: %s\n", filename, newFileName)
-
 	// Rename mail to new name.
 	err = os.Rename(filename, filepath.Join(string(d), "cur", newFileName))
 	if err != nil {
