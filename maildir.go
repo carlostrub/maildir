@@ -478,10 +478,11 @@ func (d Dir) Check() error {
 	return nil
 }
 
-// Create creates the directory structure for a Maildir.
-// If the main directory already exists, it tries to create the subdirectories
-// in there. If an error occurs while creating one of the subdirectories, this
-// function may leave a partially created directory structure.
+// Create creates the directory structure for a Maildir. It tries
+// to create all needed folders for a valid Maildir, but does not
+// return an error if they already exist. If a different error
+// occurs while creating one of the subdirectories, this function
+// may leave a partially created directory structure.
 func (d Dir) Create() error {
 
 	err := os.Mkdir(string(d), (os.ModeDir | CreateMode))
@@ -493,17 +494,23 @@ func (d Dir) Create() error {
 
 	err = os.Mkdir(filepath.Join(string(d), "tmp"), (os.ModeDir | CreateMode))
 	if err != nil {
-		return err
+		if !os.IsExist(err) {
+			return err
+		}
 	}
 
 	err = os.Mkdir(filepath.Join(string(d), "new"), (os.ModeDir | CreateMode))
 	if err != nil {
-		return err
+		if !os.IsExist(err) {
+			return err
+		}
 	}
 
 	err = os.Mkdir(filepath.Join(string(d), "cur"), (os.ModeDir | CreateMode))
 	if err != nil {
-		return err
+		if !os.IsExist(err) {
+			return err
+		}
 	}
 
 	return nil
