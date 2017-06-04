@@ -171,13 +171,14 @@ func (d Dir) Keys() ([]string, error) {
 // Filename returns the path to the file corresponding to the key.
 func (d Dir) Filename(key string) (string, error) {
 	var err error
+	var matches []string
 
 	// Find matching files in cur or new directory that begin with key.
 	switch {
 	case strings.HasSuffix(string(d), "new"):
-		matches, err := filepath.Glob(filepath.Join(string(d), (key + "*")))
+		matches, err = filepath.Glob(filepath.Join(string(d), (key + "*")))
 	default:
-		matches, err := filepath.Glob(filepath.Join(string(d), "cur", (key + "*")))
+		matches, err = filepath.Glob(filepath.Join(string(d), "cur", (key + "*")))
 	}
 	if err != nil {
 		return "", err
