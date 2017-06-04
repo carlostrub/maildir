@@ -170,6 +170,7 @@ func (d Dir) Keys() ([]string, error) {
 
 // Filename returns the path to the file corresponding to the key.
 func (d Dir) Filename(key string) (string, error) {
+	var err error
 
 	// Find matching files in cur or new directory that begin with key.
 	switch {
