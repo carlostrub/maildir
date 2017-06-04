@@ -1,4 +1,4 @@
-// The maildir package provides an interface to mailboxes in the Maildir format.
+// Package maildir provides an interface to mailboxes in the Maildir format.
 package maildir
 
 import (
@@ -30,7 +30,7 @@ const CreateMode = 0700
 // The separator separates a message's unique key from its flags in the filename.
 // This should only be changed on operating systems where the colon isn't
 // allowed in filenames.
-var separator rune = ':'
+var separator = ':'
 
 // id will be used to created a unique new mail file name (key).
 var id int64 = 10000
@@ -172,11 +172,12 @@ func (d Dir) Keys() ([]string, error) {
 func (d Dir) Filename(key string) (string, error) {
 
 	// Find matching files in cur or new directory that begin with key.
-	cur := "cur"
-	if strings.HasSuffix(string(d), "new") {
-		cur = ""
+	switch {
+	case strings.HasSuffix(string(d), "new"):
+		matches, err := filepath.Glob(filepath.Join(string(d), (key + "*")))
+	default:
+		matches, err := filepath.Glob(filepath.Join(string(d), "cur", (key + "*")))
 	}
-	matches, err := filepath.Glob(filepath.Join(string(d), cur, (key + "*")))
 	if err != nil {
 		return "", err
 	}
@@ -349,8 +350,8 @@ func (d Dir) SetFlags(key string, flags string, isKey bool) (string, error) {
 	return newFileName, nil
 }
 
-// Set info part of file name. Only use this if
-// you plan on using a non-standard info part.
+// SetInfo sets the info part of file name. Only use this if you plan on using
+// a non-standard info part.
 func (d Dir) SetInfo(key, info string, isKey bool) (string, error) {
 
 	var err error
